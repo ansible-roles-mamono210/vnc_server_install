@@ -1,6 +1,4 @@
 ---
-dependency:
-  name: galaxy
 driver:
   name: default
 platforms:
@@ -28,6 +26,7 @@ platforms:
       - device_name: /dev/sda1
         ebs:
           delete_on_termination: yes
+          volume_size: 20
           volume_type: 'gp3'
     vpc_subnet_id: ${VPC_SUBNET_ID}
 provisioner:
@@ -35,9 +34,9 @@ provisioner:
   config_options:
     defaults:
       callbacks_enabled: ansible.posix.profile_tasks
+      roles_path: "$HOME/.ansible/roles/:$HOME"
   connection_options:
     ansible_user: ${ANSIBLE_USER}
-    profile: default
   log: true
 verifier:
   name: ansible
@@ -48,7 +47,6 @@ scenario:
     - destroy
     - syntax
     - create
-    - prepare
     - converge
     - cleanup
     - destroy

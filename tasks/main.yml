@@ -1,99 +1,96 @@
 ---
-- name: Install X Window System with yum
-  ansible.builtin.yum:
-    name: "@X Window System"
+- name: Derive display number and TCP port
+  ansible.builtin.set_fact:
+    vnc_display_num: "{{ vnc_display | regex_replace('^:', '') | int }}"
+    vnc_tcp_port: "{{ 5900 + (vnc_display | regex_replace('^:', '') | int) }}"
+
+- name: Install GUI group (Server with GUI)
+  ansible.builtin.dnf:
+    name: "@Server with GUI"
     state: present
 
-- name: Install GNOME Desktop with yum
-  ansible.builtin.yum:
+- name: Install TigerVNC server packages
+  ansible.builtin.dnf:
     name:
-      - gnome-classic-session
-      - gnome-terminal
-      - control-center
-      - liberation-mono-fonts
+      - tigervnc-server
     state: present
 
-- name: Install ibus-kkc（a Japanese Kana Kanji input engine for IBus）with yum
-  ansible.builtin.yum:
-    name: ibus-kkc
-    state: present
-
-- name: Install VL Gothic Font Family with yum
-  ansible.builtin.yum:
-    name: vlgothic-*
-    state: present
-
-- name: Install TigerVNC Server with yum
-  ansible.builtin.yum:
-    name: 'tigervnc-server'
-    state: present
-
-- name: Check whether configuration file is created
-  ansible.builtin.command: test -e /etc/systemd/system/vncserver@:1.service
-  register: configfile_exists
-  changed_when: False
-  ignore_errors: True
-
-- name: Copy configuration file
-  ansible.builtin.copy:
-    src: /lib/systemd/system/vncserver@.service
-    dest: /etc/systemd/system/vncserver@:1.service
-    remote_src: yes
-    owner: root
-    group: root
-    mode: 0644
-  when: configfile_exists is failed
-
-- name: Configure connecting user settings
-  ansible.builtin.replace:
-    dest: /etc/systemd/system/vncserver@:1.service
-    regexp: '<USER>'
-    replace: "{{ vnc_user }}"
-
-- name: Add VNC user to system
+- name: Ensure VNC user exists
   ansible.builtin.user:
     name: "{{ vnc_user }}"
-    password: "{{ vnc_password }} | password_hash('sha512')"
+    state: present
+    create_home: true
 
-- name: Create $HOME/.vnc directory
+- name: Ensure ~/.vnc directory exists
   ansible.builtin.file:
     path: "/home/{{ vnc_user }}/.vnc"
     state: directory
-    owner: '{{ vnc_user }}'
-    group: '{{ vnc_user }}'
-    mode: 0755
+    owner: "{{ vnc_user }}"
+    group: "{{ vnc_user }}"
+    mode: "0700"
 
-- name: Check whether vnc password is set
-  ansible.builtin.command: "test -e /home/{{ vnc_user }}/.vnc/passwd"
-  register: vnc_password_set
-  changed_when: False
-  ignore_errors: True
+- name: Create ~/.vnc/config
+  ansible.builtin.copy:
+    dest: "/home/{{ vnc_user }}/.vnc/config"
+    owner: "{{ vnc_user }}"
+    group: "{{ vnc_user }}"
+    mode: "0600"
+    content: |
+      geometry={{ vnc_geometry }}
+      depth={{ vnc_depth }}
+      # 必要なら localhost 限定（SSHトンネル前提）にする:
+      # localhost
+      # セキュリティ向け（要件により調整）:
+      # AlwaysShared=1
+      # DisconnectClients=0
 
-- name: Set default password
+- name: Create ~/.vnc/xstartup (launch desktop session)
+  ansible.builtin.copy:
+    dest: "/home/{{ vnc_user }}/.vnc/xstartup"
+    owner: "{{ vnc_user }}"
+    group: "{{ vnc_user }}"
+    mode: "0755"
+    content: |
+      #!/bin/sh
+      unset SESSION_MANAGER
+      unset DBUS_SESSION_BUS_ADDRESS
+      exec {{ vnc_session_command }}
+
+- name: Create VNC password file (binary-safe)
+  become: true
+  become_user: "{{ vnc_user }}"
   ansible.builtin.shell: |
-    set -o pipefail
-    echo {{ vnc_password }} | vncpasswd -f > /home/{{ vnc_user }}/.vnc/passwd
-  register: default_password_set
-  changed_when: default_password_set.rc == 0
-  when: vnc_password_set is failed
+    set -euo pipefail
+    umask 077
+    mkdir -p "$HOME/.vnc"
+    tmp="$(mktemp)"
+    trap 'rm -f "$tmp"' EXIT
 
-- name: Change permission of password settings file
-  ansible.builtin.file:
-    path: "/home/{{ vnc_user }}/.vnc/passwd"
-    state: file
-    owner: '{{ vnc_user }}'
-    group: '{{ vnc_user }}'
-    mode: 0600
+    printf '%s\n%s\n' "{{ vnc_password }}" "{{ vnc_password }}" | /usr/bin/vncpasswd -f > "$tmp"
 
-- name: Start and enable VNC server
+    if [ -f "$HOME/.vnc/passwd" ] && cmp -s "$tmp" "$HOME/.vnc/passwd"; then
+      exit 0
+    fi
+
+    mv -f "$tmp" "$HOME/.vnc/passwd"
+    echo "CHANGED"
+  args:
+    executable: /bin/bash
+  register: vnc_passwd_cmd
+  changed_when: "'CHANGED' in vnc_passwd_cmd.stdout"
+  no_log: true
+
+- name: Map display to user in /etc/tigervnc/vncserver.users
+  ansible.builtin.copy:
+    dest: /etc/tigervnc/vncserver.users
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      {{ vnc_display }}={{ vnc_user }}
+
+- name: Enable and start VNC service (systemd)
   ansible.builtin.systemd:
-    name: vncserver@:1.service
+    name: "vncserver@{{ vnc_display }}.service"
+    enabled: true
     state: started
-    enabled: yes
-    daemon_reload: yes
-
-- name: Disable firewalld
-  ansible.builtin.systemd:
-    name: firewalld
-    state: stopped
-    enabled: no

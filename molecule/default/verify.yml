@@ -3,20 +3,21 @@
   hosts: all
 
   tasks:
-    - name: Check whether VNC Server installed
-      ansible.builtin.command: vncserver -help
-      register: vncserver_installed
-      changed_when: false
-      ignore_errors: True
+    - name: Gather service facts
+      ansible.builtin.service_facts:
+
+    - name: Assert VNC service is running
+      ansible.builtin.assert:
+        that:
+          - "'vncserver@{{ vnc_display }}.service' in ansible_facts.services"
+          - ansible_facts.services['vncserver@{{ vnc_display }}.service'].state == 'running'
+        fail_msg: "VNC service is not running: vncserver@{{ vnc_display }}.service"
+        success_msg: "VNC service is running: vncserver@{{ vnc_display }}.service"
 
     - name: Check OS version
       ansible.builtin.command: cat /etc/redhat-release
       register: os_version
       changed_when: false
-
-    - name: Make sure VNC Server is installed
-      ansible.builtin.debug:
-        var: vncserver_installed
 
     - name: Show OS version
       ansible.builtin.debug:

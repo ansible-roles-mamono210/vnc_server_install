@@ -3,7 +3,7 @@
 Role Description
 =========
 
-Installs [VNC Server](https://tigervnc.org) for CentOS7.
+Installs [VNC Server](https://tigervnc.org) for CentOS Stream 9.
 
 Requirements
 ------------
