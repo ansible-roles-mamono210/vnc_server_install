@@ -33,7 +33,7 @@ jobs:
         type: string
       molecule-scenario-name:
         type: string
-    working_directory: ~/vnc_server
+    working_directory: ~/vnc_server_install
     steps:
       - checkout
       - aws-cli/setup:
@@ -80,7 +80,7 @@ workflows:
           ansible-user: ec2-user
           aws-ami-name: centos-stream9-1*
           aws-ami-owner-id: '808683561341'
-          aws-instance-type: t2.micro
+          aws-instance-type: t2.medium
           aws-resource-name: ansible_roles_vnc_server
           aws-vpc-subnet-id: subnet-022a704b3061b8b39
           circleci-timeout: 60m

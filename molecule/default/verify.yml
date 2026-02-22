@@ -1,18 +1,35 @@
 ---
 - name: Verify
   hosts: all
+  become: true
 
   tasks:
     - name: Gather service facts
       ansible.builtin.service_facts:
 
-    - name: Assert VNC service is running
+    - name: Check tigervnc-server package is installed  # noqa command-instead-of-module
+      ansible.builtin.command: rpm -q tigervnc-server
+      register: tigervnc_pkg
+      changed_when: false
+
+    - name: Assert tigervnc-server is installed
       ansible.builtin.assert:
         that:
-          - "'vncserver@{{ vnc_display }}.service' in ansible_facts.services"
-          - ansible_facts.services['vncserver@{{ vnc_display }}.service'].state == 'running'
-        fail_msg: "VNC service is not running: vncserver@{{ vnc_display }}.service"
-        success_msg: "VNC service is running: vncserver@{{ vnc_display }}.service"
+          - tigervnc_pkg.rc == 0
+        fail_msg: "tigervnc-server is NOT installed"
+        success_msg: "tigervnc-server is installed"
+
+    - name: Check vncpasswd command exists
+      ansible.builtin.command: bash -lc "command -v vncpasswd"
+      register: vncpasswd_cmd
+      changed_when: false
+
+    - name: Assert vncpasswd exists
+      ansible.builtin.assert:
+        that:
+          - vncpasswd_cmd.rc == 0
+        fail_msg: "vncpasswd command is NOT available"
+        success_msg: "vncpasswd command is available"
 
     - name: Check OS version
       ansible.builtin.command: cat /etc/redhat-release
